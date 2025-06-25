@@ -1,7 +1,6 @@
 local val = redis.call("GET", KEYS[1])
 if val == ARGV[1] then
-    redis.call("DEL", KEYS[1])
-    return true
+    return redis.call("DEL", KEYS[1])
 else
-    return false
+    return 0
 end

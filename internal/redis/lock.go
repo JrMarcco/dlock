@@ -1,4 +1,4 @@
-package redis
+package rdlock
 
 import (
 	"context"
@@ -22,9 +22,9 @@ var (
 	refreshLua string
 )
 
-var _ dlock.Lock = (*Lock)(nil)
+var _ dlock.Dlock = (*Dlock)(nil)
 
-type Lock struct {
+type Dlock struct {
 	client redis.Cmdable
 
 	key     string
@@ -38,33 +38,27 @@ type Lock struct {
 
 // TryLock 尝试获取分布式锁，当失败时候会根据重试策略进行重试。
 // 默认重试策略为指数退避策略（初始间隔 100ms，最大间隔 1s，最大重试次数 8 次）。
-func (l *Lock) TryLock(ctx context.Context) error {
+func (l *Dlock) TryLock(ctx context.Context) error {
 	return retry.Retry(ctx, l.retryStrategy, func() error {
 		lockCtx, cancel := context.WithTimeout(ctx, l.timeout)
 		defer cancel()
 
-		res, err := l.client.Eval(
-			lockCtx,
-			lockLua,
-			[]string{l.key},
-			l.val,
-			l.expiration.Seconds(),
-		).Bool()
+		res, err := l.client.Eval(lockCtx, lockLua, []string{l.key}, l.val, l.expiration.Seconds()).Result()
 		if err != nil {
 			return err
 		}
 
-		if res {
-			// 加锁成功
-			return nil
+		if res != "OK" {
+			return dlock.ErrLockIsHeld
 		}
-		return dlock.ErrLockIsHeld
+		// 加锁成功
+		return nil
 	})
 }
 
 // Unlock 释放锁，失败不会重试。
-func (l *Lock) Unlock(ctx context.Context) error {
-	res, err := l.client.Eval(ctx, unLockLua, []string{l.key}, l.val).Bool()
+func (l *Dlock) Unlock(ctx context.Context) error {
+	res, err := l.client.Eval(ctx, unLockLua, []string{l.key}, l.val).Int64()
 	if errors.Is(err, redis.Nil) {
 		// key 不存在
 		return dlock.ErrReleaseNotHeld
@@ -73,29 +67,29 @@ func (l *Lock) Unlock(ctx context.Context) error {
 		return err
 	}
 
-	if res {
-		return nil
+	if res != 1 {
+		return dlock.ErrReleaseNotHeld
 	}
-	return dlock.ErrReleaseNotHeld
+	return nil
 }
 
 // Refresh 刷新锁的过期时间，失败不会重试。
-func (l *Lock) Refresh(ctx context.Context) error {
-	res, err := l.client.Eval(ctx, refreshLua, []string{l.key}, l.val, l.expiration.Seconds()).Bool()
+func (l *Dlock) Refresh(ctx context.Context) error {
+	res, err := l.client.Eval(ctx, refreshLua, []string{l.key}, l.val, l.expiration.Seconds()).Int64()
 	if err != nil {
 		return err
 	}
-	if res {
-		return nil
+	if res != 1 {
+		return dlock.ErrRefreshNotHeld
 	}
-	return dlock.ErrRefreshNotHeld
+	return nil
 }
 
-func NewLock(client redis.Cmdable, key string, expiration time.Duration, opts ...option.Opt[Lock]) (*Lock, error) {
+func NewDlock(client redis.Cmdable, key string, expiration time.Duration, opts ...option.Opt[Dlock]) (*Dlock, error) {
 	// 默认指数退避重试策略
 	strategy, _ := retry.NewExponentialBackoffStrategy(100*time.Millisecond, time.Second, 8)
 
-	lock := &Lock{
+	lock := &Dlock{
 		client: client,
 		key:    key,
 		valFunc: func() string {
