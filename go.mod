@@ -1,6 +1,6 @@
 module github.com/JrMarcco/dlock
 
-go 1.24.4
+go 1.24
 
 require (
 	github.com/JrMarcco/easy-kit v0.0.5
