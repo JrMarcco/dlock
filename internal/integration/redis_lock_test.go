@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	rdlock "github.com/JrMarcco/dlock/internal/redis"
+	"github.com/JrMarcco/dlock/redis"
 	"github.com/JrMarcco/easy-kit/retry"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
